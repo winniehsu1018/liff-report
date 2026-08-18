@@ -4,10 +4,6 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-  <!-- 關鍵：跳脫 GAS iframe 限制 -->
-  <base target="_top">
-
   <title>現場作業報工系統</title>
 
   <!-- LINE LIFF SDK -->
@@ -110,38 +106,6 @@
     .loading {
       color: #0d6efd;
     }
-
-    /* ==========================
-       診斷區
-       ========================== */
-    #debugBox {
-      margin-top: 20px;
-      padding: 12px;
-      background: #212529;
-      color: #ffffff;
-      border-radius: 8px;
-      font-size: 13px;
-      line-height: 1.6;
-      word-break: break-all;
-    }
-
-    #debugBox h3 {
-      margin-top: 0;
-      font-size: 15px;
-      color: #ffffff;
-    }
-
-    .debug-success {
-      color: #7CFC00;
-    }
-
-    .debug-error {
-      color: #ff6b6b;
-    }
-
-    .debug-normal {
-      color: #ffffff;
-    }
   </style>
 </head>
 
@@ -150,7 +114,7 @@
 <div class="card">
   <h2>現場作業報工系統</h2>
 
-  <!-- 使用者 -->
+  <!-- 填報人員資訊 -->
   <div class="user-info">
     填報人員：<span id="userName">身份驗證中...</span>
   </div>
@@ -181,16 +145,11 @@
   <label for="workScope">作業範圍 (選填)</label>
   <input type="text" id="workScope" placeholder="請填寫機台號碼或工單件號">
 
-  <!-- 提交 -->
+  <!-- 提交按鈕 -->
   <button id="submitBtn" onclick="submitData()" disabled>提交報工資料</button>
 
+  <!-- 狀態提示 -->
   <div id="status"></div>
-
-  <!-- LIFF 診斷資訊 -->
-  <div id="debugBox">
-    <h3>🔧 LIFF 診斷資訊</h3>
-    <div id="debug"></div>
-  </div>
 </div>
 
 <script>
@@ -198,7 +157,7 @@
 // 1. 基本設定
 // =====================================================
 const MY_LIFF_ID = "2011153364-MOAMyDp5";
-const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyHHYAVUp5yNV8G26wsajzpMMaAlBzwZRTxGbOyeyESQOvM2klYdALrKf7YlM37YEkW/exec";
+const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyOC9C7zJ_XUptAezUr_5W_J1uBn1aampbBiWOCME03tNLhlX4wBsaMajf2oG2AiNy0/exec";
 
 let currentUserName = "";
 
@@ -245,19 +204,7 @@ const contentMap = {
 };
 
 // =====================================================
-// 3. 診斷工具
-// =====================================================
-function debugLog(message, type = "normal") {
-  const debug = document.getElementById("debug");
-  const div = document.createElement("div");
-  div.className = type === "success" ? "debug-success" : type === "error" ? "debug-error" : "debug-normal";
-  div.innerText = message;
-  debug.appendChild(div);
-  console.log(message);
-}
-
-// =====================================================
-// 4. LIFF 初始化 (含 GAS 沙盒相容與 Timeout)
+// 3. LIFF 初始化
 // =====================================================
 window.onload = async function () {
   const userNameElement = document.getElementById("userName");
@@ -265,69 +212,40 @@ window.onload = async function () {
   const statusDiv = document.getElementById("status");
 
   if (typeof liff === "undefined") {
-    debugLog("❌ LIFF SDK：沒有載入", "error");
-    userNameElement.innerText = "LIFF SDK 載入失敗";
+    userNameElement.innerText = "驗證失敗";
     statusDiv.className = "error";
-    statusDiv.innerText = "LINE LIFF SDK 無法載入";
+    statusDiv.innerText = "LINE SDK 載入失敗，請重新開啟頁面";
     return;
   }
 
-  debugLog("✓ LIFF SDK：載入成功", "success");
-  debugLog("目前 URL：" + window.location.href);
-
   try {
-    userNameElement.innerText = "正在初始化 LIFF...";
     statusDiv.className = "loading";
-    statusDiv.innerText = "正在連線 LINE...";
+    statusDiv.innerText = "正在進行身分驗證...";
 
-    debugLog("① 準備執行 liff.init()");
+    await liff.init({ liffId: MY_LIFF_ID });
 
-    // 設定 6 秒 Timeout 控制機制
-    const initPromise = liff.init({ liffId: MY_LIFF_ID });
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("liff.init() 被 GAS iframe 沙盒攔截")), 6000)
-    );
-
-    await Promise.race([initPromise, timeoutPromise]);
-
-    debugLog("② liff.init() 成功", "success");
-    statusDiv.innerText = "LIFF 初始化成功";
-
-    let loggedIn = liff.isLoggedIn();
-    debugLog("liff.isLoggedIn()：" + loggedIn, loggedIn ? "success" : "error");
-
-    if (!loggedIn) {
-      userNameElement.innerText = "正在登入 LINE...";
-      statusDiv.innerText = "正在進行 LINE 登入";
-      debugLog("⚠ 尚未登入，執行 liff.login()");
+    if (!liff.isLoggedIn()) {
       liff.login();
       return;
     }
 
-    userNameElement.innerText = "正在取得 LINE 身分...";
     const profile = await liff.getProfile();
-    debugLog("✓ liff.getProfile()：成功", "success");
-
     currentUserName = profile.displayName;
+
     userNameElement.innerText = currentUserName;
-    statusDiv.className = "success";
-    statusDiv.innerText = "✓ 身分驗證成功";
+    statusDiv.innerText = "";
     submitBtn.disabled = false;
 
   } catch (err) {
-    console.error("LIFF ERROR", err);
-    debugLog("❌ " + err.message, "error");
-
-    // 當卡在 GAS iframe 時，彈出開窗按鈕讓使用者手動跳脫
-    userNameElement.innerHTML = `<span style="color:red;">沙盒限制</span>`;
+    console.error("LIFF Init Error:", err);
+    userNameElement.innerText = "身分驗證失敗";
     statusDiv.className = "error";
-    statusDiv.innerHTML = `受限於 GAS 嵌入頁面，<br><a href="https://liff.line.me/${MY_LIFF_ID}" target="_top" style="color:#0d6efd;font-weight:bold;">👉 點此開啟原生 LINE 報工頁面</a>`;
-    submitBtn.disabled = true;
+    statusDiv.innerText = "連線失敗，請嘗試於 LINE 內開啟本頁面";
   }
 };
 
 // =====================================================
-// 5. 工作內容連動
+// 4. 工作內容選單連動
 // =====================================================
 function updateContentOptions() {
   const categorySelect = document.getElementById("workCategory");
@@ -350,7 +268,7 @@ function updateContentOptions() {
 }
 
 // =====================================================
-// 6. 提交資料
+// 5. 提交資料至 Google Apps Script
 // =====================================================
 async function submitData() {
   const categorySelect = document.getElementById("workCategory");
@@ -360,7 +278,7 @@ async function submitData() {
   const statusDiv = document.getElementById("status");
 
   if (!currentUserName) {
-    alert("尚未完成 LINE 身分驗證");
+    alert("尚未完成 LINE 身分驗證！");
     return;
   }
 
@@ -405,17 +323,18 @@ async function submitData() {
       statusDiv.className = "success";
       statusDiv.innerText = "✅ 報工成功！";
 
+      // 成功後自動關閉 LIFF 視窗
       setTimeout(function() {
-        if (typeof liff !== "undefined" && liff.isInClient()) {
+        if (liff.isInClient()) {
           liff.closeWindow();
         }
       }, 1200);
     } else {
-      throw new Error(data.message || "GAS 回傳錯誤");
+      throw new Error(data.message || "伺服器處理失敗");
     }
   } catch (err) {
     statusDiv.className = "error";
-    statusDiv.innerText = "提交失敗：" + (err.message || err.toString());
+    statusDiv.innerText = "提交失敗：" + (err.message || "網路連線異常");
     btn.disabled = false;
   }
 }
