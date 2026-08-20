@@ -98,6 +98,59 @@
     .success { color: #198754; }
     .error { color: #dc3545; }
     .loading { color: #0d6efd; }
+
+    /* 自訂無網址彈窗樣式 */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 999;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.2s ease;
+    }
+
+    .modal-overlay.active {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .modal-box {
+      background: white;
+      padding: 24px;
+      border-radius: 16px;
+      width: 80%;
+      max-width: 320px;
+      text-align: center;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+    }
+
+    .modal-message {
+      font-size: 16px;
+      color: #333;
+      margin-bottom: 20px;
+      line-height: 1.5;
+      font-weight: 500;
+    }
+
+    .modal-btn {
+      background-color: #06C755;
+      color: white;
+      border: none;
+      padding: 12px 0;
+      width: 100%;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      margin-top: 0;
+    }
   </style>
 </head>
 
@@ -144,11 +197,35 @@
   <div id="status"></div>
 </div>
 
+<!-- 自訂無網址彈窗 HTML 結構 -->
+<div id="customModal" class="modal-overlay">
+  <div class="modal-box">
+    <div id="modalMsg" class="modal-message">提示訊息</div>
+    <button class="modal-btn" onclick="closeCustomModal()">確定</button>
+  </div>
+</div>
+
 <script>
   const GAS_URL = "https://script.google.com/macros/s/AKfycbyHHYAVUp5yNV8G26wsajzpMMaAlBzwZRTxGbOyeyESQOvM2klYdALrKf7YlM37YEkW/exec"; 
   const MY_LIFF_ID = "2011153364-MOAMyDp5";
   
   let currentProfile = null;
+  let modalCallback = null;
+
+  // 0. 自訂無網址 Modal 彈窗控制函式
+  function showAlert(message, callback) {
+    document.getElementById("modalMsg").innerText = message;
+    document.getElementById("customModal").classList.add("active");
+    modalCallback = callback || null;
+  }
+
+  function closeCustomModal() {
+    document.getElementById("customModal").classList.remove("active");
+    if (modalCallback) {
+      modalCallback();
+      modalCallback = null;
+    }
+  }
 
   // 工作內容連動資料庫
   const contentOptions = {
@@ -171,13 +248,11 @@
       if (liff.isLoggedIn()) {
         currentProfile = await liff.getProfile();
         
-        // 修正 1：正確替換 userName 元素的文字
         const userNameEl = document.getElementById("userName");
         if (userNameEl) {
           userNameEl.innerText = currentProfile.displayName;
         }
         
-        // 修正 2：驗證成功後解除按鈕的禁用狀態
         document.getElementById("submitBtn").disabled = false;
       } else {
         liff.login();
@@ -186,7 +261,7 @@
       console.error("LIFF 初始化失敗", err);
       document.getElementById("userName").innerText = "驗證失敗";
       document.getElementById("userName").style.color = "#dc3545";
-      alert("LIFF 載入失敗：" + err.message);
+      showAlert("LIFF 載入失敗：" + err.message);
     }
   }
   initLiff();
@@ -197,7 +272,7 @@
     const contentSelect = document.getElementById("workContent");
     const selectedCategory = categorySelect.value;
 
-    contentSelect.innerHTML = ""; // 清空
+    contentSelect.innerHTML = "";
 
     if (selectedCategory && contentOptions[selectedCategory]) {
       contentSelect.disabled = false;
@@ -222,10 +297,10 @@
     }
   }
 
-  // 3. 提交報工資料 (修正函式名稱與取值)
+  // 3. 提交報工資料
   async function submitData() {
     if (!currentProfile || !currentProfile.userId) {
-      alert("尚未取得您的 LINE 身份，請關閉後重新開啟頁面！");
+      showAlert("尚未取得您的 LINE 身份，請關閉後重新開啟頁面！");
       return;
     }
 
@@ -236,15 +311,14 @@
     const submitBtn = document.getElementById("submitBtn");
 
     if (!categorySelect.value) {
-      alert("請選擇工作類別！");
+      showAlert("請選擇工作類別！");
       return;
     }
     if (!contentSelect.value) {
-      alert("請選擇工作內容！");
+      showAlert("請選擇工作內容！");
       return;
     }
 
-    // 按鈕鎖定防止重複提交
     submitBtn.disabled = true;
     statusDiv.className = "loading";
     statusDiv.innerText = "資料傳送中，請稍候...";
@@ -254,7 +328,7 @@
       userName: currentProfile.displayName,
       categoryCode: categorySelect.value,
       categoryName: categorySelect.options[categorySelect.selectedIndex].text,
-      contentCode: "", // 工作內容直接取名稱
+      contentCode: "",
       contentName: contentSelect.value,
       workScope: workScopeInput.value
     };
@@ -268,20 +342,25 @@
       if (result.result === "success") {
         statusDiv.className = "success";
         statusDiv.innerText = result.message;
-        alert(result.message);
-        liff.closeWindow(); // 成功後關閉 LIFF
+        
+        // 成功時跳出自訂彈窗，點擊確定後才關閉視窗
+        showAlert(result.message, function() {
+          liff.closeWindow();
+        });
       } else {
         statusDiv.className = "error";
         statusDiv.innerText = result.message;
-        alert(result.message);
-        submitBtn.disabled = false; // 失敗時重新啟用按鈕
+        
+        // 權限不足或失敗時跳出無網址自訂彈窗
+        showAlert(result.message);
+        submitBtn.disabled = false;
       }
     })
     .catch(error => {
       console.error("Error:", error);
       statusDiv.className = "error";
       statusDiv.innerText = "提交失敗，請檢查網路連線。";
-      alert("提交失敗，請檢查網路連線。");
+      showAlert("提交失敗，請檢查網路連線。");
       submitBtn.disabled = false;
     });
   }
