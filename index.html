@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>現場作業報工系統</title>
 
   <!-- LINE LIFF SDK -->
@@ -95,17 +95,9 @@
       line-height: 1.5;
     }
 
-    .success {
-      color: #198754;
-    }
-
-    .error {
-      color: #dc3545;
-    }
-
-    .loading {
-      color: #0d6efd;
-    }
+    .success { color: #198754; }
+    .error { color: #dc3545; }
+    .loading { color: #0d6efd; }
   </style>
 </head>
 
@@ -153,51 +145,120 @@
 </div>
 
 <script>
-  // ⚠️ 請替換為您的 GAS Web App 網址與 LIFF ID
   const GAS_URL = "https://script.google.com/macros/s/AKfycbyHHYAVUp5yNV8G26wsajzpMMaAlBzwZRTxGbOyeyESQOvM2klYdALrKf7YlM37YEkW/exec"; 
   const MY_LIFF_ID = "2011153364-MOAMyDp5";
   
   let currentProfile = null;
 
-  // 1. LIFF 初始化 (載入頁面時自動執行)
+  // 工作內容連動資料庫
+  const contentOptions = {
+    "M01": ["備料/上料", "機台調整/設定", "實際加工/生產", "下料/出料", "設備日常自主點檢", "設備初級保養", "清機/保養/歸位"],
+    "M02": ["定期巡檢/例行檢查", "異常排除/故障維修", "潤滑/加油/保養", "更換消耗品/耗材"],
+    "P01": ["毛邊去除/打磨", "表面處理/洗淨", "烘乾/乾燥", "組裝/預組裝"],
+    "Q01": ["首件檢查", "自主檢查/巡檢", "成品全面檢查", "量測與紀錄", "不良品標示與隔離"],
+    "D01": ["工單/派工單填寫", "生產日報填寫", "自主檢查表填寫"],
+    "S01": ["工單完工結帳", "數量確認/報廢申報"],
+    "T01": ["原料/半成品搬運", "成品移轉/入庫", "廢料/殘料清理搬運"],
+    "A01": ["設備故障等待維修", "待料/等待支援", "工程/品質問題確認", "首件確認中/等待檢驗"],
+    "PK1": ["產品包裝", "標籤貼附/列印", "裝箱/疊棧板"],
+    "OTH1": ["開會/教育訓練", "環境打掃/5S整理", "協助其他單位"]
+  };
+
+  // 1. 初始化 LIFF
   async function initLiff() {
     try {
       await liff.init({ liffId: MY_LIFF_ID });
       if (liff.isLoggedIn()) {
         currentProfile = await liff.getProfile();
-        const userInfoEl = document.getElementById("userInfo");
-        if (userInfoEl) {
-          userInfoEl.innerText = "已登入員工：" + currentProfile.displayName;
+        
+        // 修正 1：正確替換 userName 元素的文字
+        const userNameEl = document.getElementById("userName");
+        if (userNameEl) {
+          userNameEl.innerText = currentProfile.displayName;
         }
+        
+        // 修正 2：驗證成功後解除按鈕的禁用狀態
+        document.getElementById("submitBtn").disabled = false;
       } else {
         liff.login();
       }
     } catch (err) {
       console.error("LIFF 初始化失敗", err);
+      document.getElementById("userName").innerText = "驗證失敗";
+      document.getElementById("userName").style.color = "#dc3545";
       alert("LIFF 載入失敗：" + err.message);
     }
   }
   initLiff();
 
-  // 2. 按下送出按鈕時執行的函式
-  async function submitReport() {
+  // 2. 工作類別連動工作內容選單
+  function updateContentOptions() {
+    const categorySelect = document.getElementById("workCategory");
+    const contentSelect = document.getElementById("workContent");
+    const selectedCategory = categorySelect.value;
+
+    contentSelect.innerHTML = ""; // 清空
+
+    if (selectedCategory && contentOptions[selectedCategory]) {
+      contentSelect.disabled = false;
+      
+      let defaultOpt = document.createElement("option");
+      defaultOpt.value = "";
+      defaultOpt.innerText = "-- 請選擇工作內容 --";
+      contentSelect.appendChild(defaultOpt);
+
+      contentOptions[selectedCategory].forEach(item => {
+        let opt = document.createElement("option");
+        opt.value = item;
+        opt.innerText = item;
+        contentSelect.appendChild(opt);
+      });
+    } else {
+      contentSelect.disabled = true;
+      let defaultOpt = document.createElement("option");
+      defaultOpt.value = "";
+      defaultOpt.innerText = "-- 請先選擇工作類別 --";
+      contentSelect.appendChild(defaultOpt);
+    }
+  }
+
+  // 3. 提交報工資料 (修正函式名稱與取值)
+  async function submitData() {
     if (!currentProfile || !currentProfile.userId) {
       alert("尚未取得您的 LINE 身份，請關閉後重新開啟頁面！");
       return;
     }
 
-    // 💡 取得表單欄位值 (請確保 "" 內的名稱與您 HTML input 的 id 一致)
+    const categorySelect = document.getElementById("workCategory");
+    const contentSelect = document.getElementById("workContent");
+    const workScopeInput = document.getElementById("workScope");
+    const statusDiv = document.getElementById("status");
+    const submitBtn = document.getElementById("submitBtn");
+
+    if (!categorySelect.value) {
+      alert("請選擇工作類別！");
+      return;
+    }
+    if (!contentSelect.value) {
+      alert("請選擇工作內容！");
+      return;
+    }
+
+    // 按鈕鎖定防止重複提交
+    submitBtn.disabled = true;
+    statusDiv.className = "loading";
+    statusDiv.innerText = "資料傳送中，請稍候...";
+
     const payload = {
-      userId: currentProfile.userId,        // 傳送 User ID 供 GAS 白名單比對
-      userName: currentProfile.displayName, // LINE 暱稱
-      categoryCode: document.getElementById("categoryCode") ? document.getElementById("categoryCode").value : "",
-      categoryName: document.getElementById("categoryName") ? document.getElementById("categoryName").value : "",
-      contentCode: document.getElementById("contentCode") ? document.getElementById("contentCode").value : "",
-      contentName: document.getElementById("contentName") ? document.getElementById("contentName").value : "",
-      workScope: document.getElementById("workScope") ? document.getElementById("workScope").value : ""
+      userId: currentProfile.userId,
+      userName: currentProfile.displayName,
+      categoryCode: categorySelect.value,
+      categoryName: categorySelect.options[categorySelect.selectedIndex].text,
+      contentCode: "", // 工作內容直接取名稱
+      contentName: contentSelect.value,
+      workScope: workScopeInput.value
     };
 
-    // 發送資料給 GAS
     fetch(GAS_URL, {
       method: "POST",
       body: JSON.stringify(payload)
@@ -205,15 +266,23 @@
     .then(response => response.json())
     .then(result => {
       if (result.result === "success") {
-        alert(result.message); // 顯示成功訊息
-        liff.closeWindow();    // 自動關閉 LIFF 視窗
+        statusDiv.className = "success";
+        statusDiv.innerText = result.message;
+        alert(result.message);
+        liff.closeWindow(); // 成功後關閉 LIFF
       } else {
-        alert(result.message); // 顯示失敗或權限不足訊息
+        statusDiv.className = "error";
+        statusDiv.innerText = result.message;
+        alert(result.message);
+        submitBtn.disabled = false; // 失敗時重新啟用按鈕
       }
     })
     .catch(error => {
       console.error("Error:", error);
+      statusDiv.className = "error";
+      statusDiv.innerText = "提交失敗，請檢查網路連線。";
       alert("提交失敗，請檢查網路連線。");
+      submitBtn.disabled = false;
     });
   }
 </script>
