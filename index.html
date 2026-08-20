@@ -153,192 +153,69 @@
 </div>
 
 <script>
-// =====================================================
-// 1. 基本設定
-// =====================================================
-const MY_LIFF_ID = "2011153364-MOAMyDp5";
-const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyHHYAVUp5yNV8G26wsajzpMMaAlBzwZRTxGbOyeyESQOvM2klYdALrKf7YlM37YEkW/exec";
+  // ⚠️ 請替換為您的 GAS Web App 網址與 LIFF ID
+  const GAS_URL = "https://script.google.com/macros/s/AKfycbyHHYAVUp5yNV8G26wsajzpMMaAlBzwZRTxGbOyeyESQOvM2klYdALrKf7YlM37YEkW/exec"; 
+  const MY_LIFF_ID = "2011153364-MOAMyDp5";
+  
+  let currentProfile = null;
 
-let currentUserName = "";
-
-// =====================================================
-// 2. 工作內容對照表
-// =====================================================
-const contentMap = {
-  "M01": [
-    { code: "M01-1", text: "上料" },
-    { code: "M01-2", text: "下料" },
-    { code: "M01-3", text: "換刀" },
-    { code: "M01-4", text: "換批" }
-  ],
-  "M02": [
-    { code: "M02-1", text: "巡視多台機台外觀、清潔、運轉狀態與異音、溫度與壓力等核心參數,以及切削油等狀況,並做相對應維護" }
-  ],
-  "P01": [
-    { code: "P01-1", text: "甩油、零件清洗、分裝" }
-  ],
-  "Q01": [
-    { code: "Q01-1", text: "首末件確認" },
-    { code: "Q01-2", text: "抽檢" },
-    { code: "Q01-3", text: "重測" },
-    { code: "Q01-4", text: "挑料、挑鐵屑" }
-  ],
-  "D01": [
-    { code: "D01-1", text: "列印、整理、歸檔" }
-  ],
-  "S01": [
-    { code: "S01-1", text: "系統入單、結帳" }
-  ],
-  "T01": [
-    { code: "T01-1", text: "材料、半成品、成品" }
-  ],
-  "A01": [
-    { code: "A01-1", text: "排除異常、料片碰撞、刀具撞擊、尺寸異常" }
-  ],
-  "PK1": [
-    { code: "PK1-1", text: "零件包裝" }
-  ],
-  "OTH1": [
-    { code: "OTH1-1", text: "其他(請填寫)" }
-  ]
-};
-
-// =====================================================
-// 3. LIFF 初始化
-// =====================================================
-window.onload = async function () {
-  const userNameElement = document.getElementById("userName");
-  const submitBtn = document.getElementById("submitBtn");
-  const statusDiv = document.getElementById("status");
-
-  if (typeof liff === "undefined") {
-    userNameElement.innerText = "驗證失敗";
-    statusDiv.className = "error";
-    statusDiv.innerText = "LINE SDK 載入失敗，請重新開啟頁面";
-    return;
+  // 1. LIFF 初始化 (載入頁面時自動執行)
+  async function initLiff() {
+    try {
+      await liff.init({ liffId: MY_LIFF_ID });
+      if (liff.isLoggedIn()) {
+        currentProfile = await liff.getProfile();
+        const userInfoEl = document.getElementById("userInfo");
+        if (userInfoEl) {
+          userInfoEl.innerText = "已登入員工：" + currentProfile.displayName;
+        }
+      } else {
+        liff.login();
+      }
+    } catch (err) {
+      console.error("LIFF 初始化失敗", err);
+      alert("LIFF 載入失敗：" + err.message);
+    }
   }
+  initLiff();
 
-  try {
-    statusDiv.className = "loading";
-    statusDiv.innerText = "正在進行身分驗證...";
-
-    await liff.init({ liffId: MY_LIFF_ID });
-
-    if (!liff.isLoggedIn()) {
-      liff.login();
+  // 2. 按下送出按鈕時執行的函式
+  async function submitReport() {
+    if (!currentProfile || !currentProfile.userId) {
+      alert("尚未取得您的 LINE 身份，請關閉後重新開啟頁面！");
       return;
     }
 
-    const profile = await liff.getProfile();
-    currentUserName = profile.displayName;
+    // 💡 取得表單欄位值 (請確保 "" 內的名稱與您 HTML input 的 id 一致)
+    const payload = {
+      userId: currentProfile.userId,        // 傳送 User ID 供 GAS 白名單比對
+      userName: currentProfile.displayName, // LINE 暱稱
+      categoryCode: document.getElementById("categoryCode") ? document.getElementById("categoryCode").value : "",
+      categoryName: document.getElementById("categoryName") ? document.getElementById("categoryName").value : "",
+      contentCode: document.getElementById("contentCode") ? document.getElementById("contentCode").value : "",
+      contentName: document.getElementById("contentName") ? document.getElementById("contentName").value : "",
+      workScope: document.getElementById("workScope") ? document.getElementById("workScope").value : ""
+    };
 
-    userNameElement.innerText = currentUserName;
-    statusDiv.innerText = "";
-    submitBtn.disabled = false;
-
-  } catch (err) {
-    console.error("LIFF Init Error:", err);
-    userNameElement.innerText = "身分驗證失敗";
-    statusDiv.className = "error";
-    statusDiv.innerText = "連線失敗，請嘗試於 LINE 內開啟本頁面";
-  }
-};
-
-// =====================================================
-// 4. 工作內容選單連動
-// =====================================================
-function updateContentOptions() {
-  const categorySelect = document.getElementById("workCategory");
-  const contentSelect = document.getElementById("workContent");
-  const selectedCategory = categorySelect.value;
-
-  contentSelect.innerHTML = '<option value="">-- 請選擇工作內容 --</option>';
-
-  if (selectedCategory && contentMap[selectedCategory]) {
-    contentSelect.disabled = false;
-    contentMap[selectedCategory].forEach(function(item) {
-      const option = document.createElement("option");
-      option.value = item.code;
-      option.innerText = item.code + " " + item.text;
-      contentSelect.appendChild(option);
-    });
-  } else {
-    contentSelect.disabled = true;
-  }
-}
-
-// =====================================================
-// 5. 提交資料至 Google Apps Script
-// =====================================================
-async function submitData() {
-  const categorySelect = document.getElementById("workCategory");
-  const contentSelect = document.getElementById("workContent");
-  const scopeInput = document.getElementById("workScope");
-  const btn = document.getElementById("submitBtn");
-  const statusDiv = document.getElementById("status");
-
-  if (!currentUserName) {
-    alert("尚未完成 LINE 身分驗證！");
-    return;
-  }
-
-  const categoryCode = categorySelect.value;
-  if (!categoryCode) {
-    alert("請選擇工作類別！");
-    return;
-  }
-
-  const contentCode = contentSelect.value;
-  if (!contentCode) {
-    alert("請選擇工作內容！");
-    return;
-  }
-
-  btn.disabled = true;
-  statusDiv.className = "loading";
-  statusDiv.innerText = "資料傳送中...";
-
-  const payload = {
-    userName: currentUserName,
-    categoryCode: categoryCode,
-    categoryName: categorySelect.options[categorySelect.selectedIndex].text,
-    contentCode: contentCode,
-    contentName: contentSelect.options[contentSelect.selectedIndex].text,
-    workScope: scopeInput.value.trim()
-  };
-
-  try {
-    const response = await fetch(GAS_WEB_APP_URL, {
+    // 發送資料給 GAS
+    fetch(GAS_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8"
-      },
-      body: JSON.stringify(payload),
-      redirect: "follow"
+      body: JSON.stringify(payload)
+    })
+    .then(response => response.json())
+    .then(result => {
+      if (result.result === "success") {
+        alert(result.message); // 顯示成功訊息
+        liff.closeWindow();    // 自動關閉 LIFF 視窗
+      } else {
+        alert(result.message); // 顯示失敗或權限不足訊息
+      }
+    })
+    .catch(error => {
+      console.error("Error:", error);
+      alert("提交失敗，請檢查網路連線。");
     });
-
-    const data = await response.json();
-
-    if (data.result === "success") {
-      statusDiv.className = "success";
-      statusDiv.innerText = "✅ 報工成功！";
-
-      // 成功後自動關閉 LIFF 視窗
-      setTimeout(function() {
-        if (liff.isInClient()) {
-          liff.closeWindow();
-        }
-      }, 1200);
-    } else {
-      throw new Error(data.message || "伺服器處理失敗");
-    }
-  } catch (err) {
-    statusDiv.className = "error";
-    statusDiv.innerText = "提交失敗：" + (err.message || "網路連線異常");
-    btn.disabled = false;
   }
-}
 </script>
-
 </body>
 </html>
